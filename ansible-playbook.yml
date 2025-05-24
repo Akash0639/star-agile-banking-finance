@@ -3,6 +3,7 @@
   hosts: all
   become: true
   connection: ssh
+
   tasks:
 
     - name: Remove conflicting containerd packages
@@ -36,7 +37,6 @@
       apt_repository:
         repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
         state: present
-      
 
     - name: Update apt cache after adding Docker repo
       apt:
@@ -50,11 +50,24 @@
           - containerd.io
         state: present
 
+    - name: Add current user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
     - name: Ensure Docker service is started and enabled
       service:
         name: docker
         state: started
         enabled: yes
+
+    - name: Wait for Docker daemon to be ready
+      shell: docker info
+      register: docker_ready
+      retries: 5
+      delay: 3
+      until: docker_ready.rc == 0
 
     - name: Check if a container named 'banking-me' exists
       shell: docker ps -a --filter "name=^/banking-me$" --format "{{'{{'}}.ID{{'}}'}}"
@@ -64,7 +77,7 @@
 
     - name: Restart existing container if it exists
       shell: docker restart banking-me
-      when: container_id_result is defined and container_id_result.stdout != ""
+      when: container_id_result.stdout is defined and container_id_result.stdout | length > 0
       ignore_errors: true
 
     - name: Run new container if not already running
@@ -75,4 +88,4 @@
         restart_policy: always
         published_ports:
           - "8084:8081"
-      when: container_id_result is not defined or container_id_result.stdout == ""
+      when: container_id_result.stdout is not defined or container_id_result.stdout | length == 0
